@@ -103,16 +103,13 @@ bool MatrixMultTaskMPI::RunImpl() {
   int base_rows = m / size;
   int extra_rows = m % size;
 
-  // для каждого процесса вычисляем количество строк и начальную позицию
+  // для каждого процесса вычисляем количество строк
   int my_rows = base_rows;
-  int my_start = 0;
 
   if (rank < extra_rows) {
     my_rows = base_rows + 1;
-    my_start = rank * (base_rows + 1);
   } else {
     my_rows = base_rows;
-    my_start = extra_rows * (base_rows + 1) + (rank - extra_rows) * base_rows;
   }
 
   // подготовка параметров для Scatterv
