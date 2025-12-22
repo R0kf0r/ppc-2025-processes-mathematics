@@ -1,6 +1,7 @@
 #include "polukhin_v_matrix_mult/seq/include/ops_seq.hpp"
 
-#include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <vector>
 
 #include "polukhin_v_matrix_mult/common/include/common.hpp"
@@ -23,8 +24,8 @@ bool MatrixMultTaskSEQ::ValidationImpl() {
   }
 
   // проверяем соответствие размеров массивов
-  size_t expected_size_a = dims.rows_a * dims.cols_a;
-  size_t expected_size_b = dims.cols_a * dims.cols_b;
+  const std::size_t expected_size_a = static_cast<std::size_t>(dims.rows_a) * static_cast<std::size_t>(dims.cols_a);
+  const std::size_t expected_size_b = static_cast<std::size_t>(dims.cols_a) * static_cast<std::size_t>(dims.cols_b);
 
   if (input.matrix_a.size() != expected_size_a) {
     return false;
@@ -39,7 +40,7 @@ bool MatrixMultTaskSEQ::ValidationImpl() {
 
 bool MatrixMultTaskSEQ::PreProcessingImpl() {
   const auto &dims = GetInput().dims;
-  size_t result_size = dims.rows_a * dims.cols_b;
+  const std::size_t result_size = static_cast<std::size_t>(dims.rows_a) * static_cast<std::size_t>(dims.cols_b);
   GetOutput().resize(result_size);
   // инициализация нулями
   std::fill(GetOutput().begin(), GetOutput().end(), 0.0);
@@ -53,21 +54,21 @@ bool MatrixMultTaskSEQ::RunImpl() {
   const auto &dims = input.dims;
   auto &result = GetOutput();
 
-  size_t m = dims.rows_a;
-  size_t k = dims.cols_a;
-  size_t n = dims.cols_b;
+  const std::size_t m = dims.rows_a;
+  const std::size_t k = dims.cols_a;
+  const std::size_t n = dims.cols_b;
 
   // стандартный алгоритм умножения матриц
-  for (size_t i = 0; i < m; ++i) {
-    for (size_t j = 0; j < n; ++j) {
+  for (std::size_t i = 0; i < m; ++i) {
+    for (std::size_t j = 0; j < n; ++j) {
       double sum = 0.0;
-      for (size_t p = 0; p < k; ++p) {
-        // элемент из i-й строки A и p-го столбца B
-        double a_elem = a[i * k + p];
-        double b_elem = b[p * n + j];
+      for (std::size_t pk = 0; pk < k; ++pk) {
+        // элемент из i-й строки A и pk-го столбца B
+        const double a_elem = a[(i * k) + pk];
+        const double b_elem = b[(pk * n) + j];
         sum += a_elem * b_elem;
       }
-      result[i * n + j] = sum;
+      result[(i * n) + j] = sum;
     }
   }
 

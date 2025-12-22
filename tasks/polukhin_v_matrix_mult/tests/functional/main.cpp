@@ -26,40 +26,43 @@ class PolukhinVRunFuncTestsMatrixMult : public ppc::util::BaseRunFuncTests<InTyp
   void SetUp() override {
     auto params = std::get<static_cast<std::size_t>(ppc::util::GTestParamIndex::kTestParams)>(GetParam());
 
-    size_t m = std::get<0>(params);
-    size_t k = std::get<1>(params);
-    size_t n = std::get<2>(params);
+    const std::size_t m = std::get<0>(params);
+    const std::size_t k = std::get<1>(params);
+    const std::size_t n = std::get<2>(params);
 
     // генерируем матрицу A
     std::vector<double> mat_a(m * k);
-    for (size_t i = 0; i < m; ++i) {
-      for (size_t j = 0; j < k; ++j) {
-        mat_a[i * k + j] = static_cast<double>((i + 1) * (j + 1));
+    for (std::size_t i = 0; i < m; ++i) {
+      for (std::size_t j = 0; j < k; ++j) {
+        mat_a[(i * k) + j] = static_cast<double>((i + 1) * (j + 1));
       }
     }
 
     // генерируем матрицу B
     std::vector<double> mat_b(k * n);
-    for (size_t i = 0; i < k; ++i) {
-      for (size_t j = 0; j < n; ++j) {
-        double val = ((i + j + 1) % 3 == 0) ? 1.0 : 0.5;
-        mat_b[i * n + j] = val;
+    for (std::size_t i = 0; i < k; ++i) {
+      for (std::size_t j = 0; j < n; ++j) {
+        const double val = ((i + j + 1) % 3 == 0) ? 1.0 : 0.5;
+        mat_b[(i * n) + j] = val;
       }
     }
 
     input_data_.matrix_a = mat_a;
     input_data_.matrix_b = mat_b;
-    input_data_.dims = {m, k, n};
+    // assign fields explicitly to avoid aggregate-brace warnings
+    input_data_.dims.rows_a = m;
+    input_data_.dims.cols_a = k;
+    input_data_.dims.cols_b = n;
 
     // вычисляем ожидаемый результат
     expected_output_.resize(m * n);
-    for (size_t i = 0; i < m; ++i) {
-      for (size_t j = 0; j < n; ++j) {
+    for (std::size_t i = 0; i < m; ++i) {
+      for (std::size_t j = 0; j < n; ++j) {
         double sum = 0.0;
-        for (size_t p = 0; p < k; ++p) {
-          sum += mat_a[i * k + p] * mat_b[p * n + j];
+        for (std::size_t pk = 0; pk < k; ++pk) {
+          sum += mat_a[(i * k) + pk] * mat_b[(pk * n) + j];
         }
-        expected_output_[i * n + j] = sum;
+        expected_output_[(i * n) + j] = sum;
       }
     }
   }
@@ -69,9 +72,9 @@ class PolukhinVRunFuncTestsMatrixMult : public ppc::util::BaseRunFuncTests<InTyp
       return false;
     }
 
-    double eps = 1e-6;
-    for (size_t i = 0; i < output_data.size(); ++i) {
-      double diff = std::abs(output_data[i] - expected_output_[i]);
+    const double eps = 1e-6;
+    for (std::size_t i = 0; i < output_data.size(); ++i) {
+      const double diff = std::abs(output_data[i] - expected_output_[i]);
       if (diff > eps) {
         return false;
       }

@@ -2,9 +2,9 @@
 
 #include <mpi.h>
 
-#include <algorithm>
+#include <array>
 #include <cmath>
-#include <numeric>
+#include <cstddef>
 #include <vector>
 
 #include "polukhin_v_matrix_mult/common/include/common.hpp"
@@ -30,8 +30,8 @@ bool MatrixMultTaskMPI::ValidationImpl() {
       return false;
     }
 
-    size_t expected_size_a = dims.rows_a * dims.cols_a;
-    size_t expected_size_b = dims.cols_a * dims.cols_b;
+    const std::size_t expected_size_a = static_cast<std::size_t>(dims.rows_a) * static_cast<std::size_t>(dims.cols_a);
+    const std::size_t expected_size_b = static_cast<std::size_t>(dims.cols_a) * static_cast<std::size_t>(dims.cols_b);
 
     if (input.matrix_a.size() != expected_size_a) {
       return false;
@@ -77,14 +77,14 @@ bool MatrixMultTaskMPI::RunImpl() {
     n = static_cast<int>(input.dims.cols_b);
   }
 
-  // рассылаем размеры всем процессам
-  int dims[3];
+  // рассылаем размеры всем процессам (используем std::array вместо C-массива)
+  std::array<int, 3> dims{};
   if (rank == 0) {
     dims[0] = m;
     dims[1] = k;
     dims[2] = n;
   }
-  MPI_Bcast(dims, 3, MPI_INT, 0, MPI_COMM_WORLD);
+  MPI_Bcast(dims.data(), static_cast<int>(dims.size()), MPI_INT, 0, MPI_COMM_WORLD);
 
   if (rank != 0) {
     m = dims[0];
@@ -93,106 +93,103 @@ bool MatrixMultTaskMPI::RunImpl() {
   }
 
   // рассылаем матрицу B всем процессам
-  int b_size = k * n;
+  const int b_size = k * n;
   if (rank != 0) {
-    b_matrix.resize(b_size);
+    b_matrix.resize(static_cast<std::size_t>(b_size));
   }
+  // если b_size == 0, MPI_Bcast корректно вызовется с nullptr на ранках-не-0? безопаснее передавать .data()
   MPI_Bcast(b_matrix.data(), b_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   // сколько строк получит каждый процесс
-  int base_rows = m / size;
-  int extra_rows = m % size;
+  const int base_rows = (size == 0) ? 0 : (m / size);
+  const int extra_rows = (size == 0) ? 0 : (m % size);
 
-  // для каждого процесса вычисляем количество строк
-  int my_rows = base_rows;
-
-  if (rank < extra_rows) {
-    my_rows = base_rows + 1;
-  } else {
-    my_rows = base_rows;
-  }
+  // сколько строк у текущего процесса (вычисляем корректно, без "dead store")
+  int my_rows = (rank < extra_rows) ? (base_rows + 1) : base_rows;
 
   // подготовка параметров для Scatterv
-  std::vector<int> sendcounts(size);
-  std::vector<int> displs(size);
+  std::vector<int> sendcounts(static_cast<std::size_t>(size));
+  std::vector<int> displs(static_cast<std::size_t>(size));
+
+  // лямбда для вычисления rows/start для процесса i (чтобы не дублировать код и уменьшить cognitive complexity)
+  auto compute_rows_start = [&](int proc_index) -> std::pair<int, int> {
+    if (proc_index < extra_rows) {
+      const int rows_for_proc = base_rows + 1;
+      const int start_for_proc = proc_index * (base_rows + 1);
+      return {rows_for_proc, start_for_proc};
+    }
+    const int rows_for_proc = base_rows;
+    const int start_for_proc = extra_rows * (base_rows + 1) + (proc_index - extra_rows) * base_rows;
+    return {rows_for_proc, start_for_proc};
+  };
 
   if (rank == 0) {
-    // заполнение массивы sendcounts и displs, для всех процессов
+    // заполнение массивов sendcounts и displs, для всех процессов
     for (int i = 0; i < size; ++i) {
-      int rows_for_proc = base_rows;
-      int start_for_proc = 0;
+      auto pr = compute_rows_start(i);
+      const int rows_for_proc = pr.first;
+      const int start_for_proc = pr.second;
 
-      if (i < extra_rows) {
-        rows_for_proc = base_rows + 1;
-        start_for_proc = i * (base_rows + 1);
-      } else {
-        rows_for_proc = base_rows;
-        start_for_proc = extra_rows * (base_rows + 1) + (i - extra_rows) * base_rows;
-      }
-
-      sendcounts[i] = rows_for_proc * k;
-      displs[i] = start_for_proc * k;
+      sendcounts[static_cast<std::size_t>(i)] = rows_for_proc * k;
+      displs[static_cast<std::size_t>(i)] = start_for_proc * k;
     }
   }
 
   // буфер для локальных строк матрицы A
-  std::vector<double> local_a(my_rows * k);
+  const std::size_t my_rows_sz = static_cast<std::size_t>(my_rows);
+  const std::size_t k_sz = static_cast<std::size_t>(k);
+  const std::size_t n_sz = static_cast<std::size_t>(n);
+
+  std::vector<double> local_a(my_rows_sz * k_sz);
 
   // распределение строк матрицы A между процессами
-  int my_count = my_rows * k;
+  const int my_count = my_rows * k;
   MPI_Scatterv(rank == 0 ? a_matrix.data() : nullptr, sendcounts.data(), displs.data(), MPI_DOUBLE, local_a.data(),
                my_count, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   // локальное умножение
-  std::vector<double> local_result(my_rows * n);
+  std::vector<double> local_result(my_rows_sz * n_sz);
 
   for (int i = 0; i < my_rows; ++i) {
     for (int j = 0; j < n; ++j) {
       double sum = 0.0;
       // скалярное произведение
-      for (int p = 0; p < k; ++p) {
-        double val_a = local_a[i * k + p];
-        double val_b = b_matrix[p * n + j];
+      for (int pk = 0; pk < k; ++pk) {
+        const double val_a = local_a[(static_cast<std::size_t>(i) * k_sz) + static_cast<std::size_t>(pk)];
+        const double val_b = b_matrix[(static_cast<std::size_t>(pk) * n_sz) + static_cast<std::size_t>(j)];
         sum += val_a * val_b;
       }
-      local_result[i * n + j] = sum;
+      local_result[(static_cast<std::size_t>(i) * n_sz) + static_cast<std::size_t>(j)] = sum;
     }
   }
 
   // сборка результатов обратно на процесс 0
-  std::vector<int> recvcounts(size);
-  std::vector<int> rdispls(size);
+  std::vector<int> recvcounts(static_cast<std::size_t>(size));
+  std::vector<int> rdispls(static_cast<std::size_t>(size));
 
   if (rank == 0) {
-    // вычисление параметры для Gatherv
+    // вычисление параметров для Gatherv
     for (int i = 0; i < size; ++i) {
-      int rows_for_proc = base_rows;
-      int start_for_proc = 0;
+      auto pr = compute_rows_start(i);
+      const int rows_for_proc = pr.first;
+      const int start_for_proc = pr.second;
 
-      if (i < extra_rows) {
-        rows_for_proc = base_rows + 1;
-        start_for_proc = i * (base_rows + 1);
-      } else {
-        rows_for_proc = base_rows;
-        start_for_proc = extra_rows * (base_rows + 1) + (i - extra_rows) * base_rows;
-      }
-
-      recvcounts[i] = rows_for_proc * n;
-      rdispls[i] = start_for_proc * n;
+      recvcounts[static_cast<std::size_t>(i)] = rows_for_proc * n;
+      rdispls[static_cast<std::size_t>(i)] = start_for_proc * n;
     }
 
-    // память под результат
-    GetOutput().resize(m * n);
+    // память под результат (size_t)
+    GetOutput().resize(static_cast<std::size_t>(m) * static_cast<std::size_t>(n));
   }
 
-  int my_result_count = my_rows * n;
+  const int my_result_count = my_rows * n;
   MPI_Gatherv(local_result.data(), my_result_count, MPI_DOUBLE, rank == 0 ? GetOutput().data() : nullptr,
               recvcounts.data(), rdispls.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   if (size > 1) {
-    int total_result_size = m * n;
+    const int total_result_size = m * n;
     if (rank != 0) {
-      GetOutput().resize(total_result_size);
+      GetOutput().resize(static_cast<std::size_t>(total_result_size));
     }
     MPI_Bcast(GetOutput().data(), total_result_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   }
