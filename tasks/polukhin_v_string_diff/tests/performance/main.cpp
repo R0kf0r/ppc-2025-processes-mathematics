@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <string>
 #include <utility>
 
@@ -13,7 +14,7 @@ namespace polukhin_v_string_diff {
 class PolukhinVRunPerfTestsStringDiff : public ppc::util::BaseRunPerfTests<InType, OutType> {
  protected:
   void SetUp() override {
-    const size_t size = 10000000;
+    const size_t size = 100000000;
     std::string long_str1(size, 'a');
     std::string long_str2(size, 'a');
 
@@ -22,7 +23,7 @@ class PolukhinVRunPerfTestsStringDiff : public ppc::util::BaseRunPerfTests<InTyp
     }
 
     input_data_ = std::make_pair(long_str1, long_str2);
-    expected_output_ = 1000000;
+    expected_output_ = 10000000;
   }
 
   bool CheckTestOutputData(OutType &output_data) final {

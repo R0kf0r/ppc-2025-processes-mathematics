@@ -2,6 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <string>
+
+#include "polukhin_v_string_diff/common/include/common.hpp"
 
 namespace polukhin_v_string_diff {
 
@@ -33,7 +37,9 @@ bool StringDiffTaskSEQ::RunImpl() {
     }
   }
 
-  result += std::abs(static_cast<int>(str1.size()) - static_cast<int>(str2.size()));
+  size_t len1 = str1.size();
+  size_t len2 = str2.size();
+  result += (std::max<size_t>(len1, len2) - std::min<size_t>(len1, len2));
 
   GetOutput() = result;
   return true;

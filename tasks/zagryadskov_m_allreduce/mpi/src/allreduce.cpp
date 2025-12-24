@@ -1,0 +1,196 @@
+#include "zagryadskov_m_allreduce/mpi/include/allreduce.hpp"
+
+#include <mpi.h>
+
+#include <cstddef>
+#include <cstring>
+#include <stdexcept>
+#include <vector>
+
+#include "zagryadskov_m_allreduce/common/include/common.hpp"
+#include "zagryadskov_m_allreduce/seq/include/allreduce.hpp"
+
+namespace zagryadskov_m_allreduce {
+
+ZagryadskovMAllreduceMPI::ZagryadskovMAllreduceMPI(const InType &in) {
+  SetTypeOfTask(GetStaticTypeOfTask());
+  int world_rank = 0;
+  int err_code = 0;
+  err_code = MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Comm_rank failed");
+  }
+  if (world_rank == 0) {
+    GetInput() = in;
+  }
+}
+
+bool ZagryadskovMAllreduceMPI::ValidationImpl() {
+  bool res = false;
+  int world_rank = 0;
+  int world_size = 0;
+  int err_code = 0;
+  err_code = MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Comm_rank failed");
+  }
+  err_code = MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Comm_rank failed");
+  }
+  if (world_rank == 0) {
+    auto &param1 = std::get<0>(GetInput());
+    int param2 = std::get<1>(GetInput());
+    int param3 = std::get<2>(GetInput());
+
+    res = (!param1.empty()) && (param3 >= 0) && (param3 <= 2) && (param2 > 0) &&
+          (param1.size() >= static_cast<size_t>(param2) * static_cast<size_t>(world_size));
+  } else {
+    res = true;
+  }
+  return res;
+}
+
+bool ZagryadskovMAllreduceMPI::PreProcessingImpl() {
+  int world_rank = 0;
+  int err_code = 0;
+  int count = 0;
+  err_code = MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Comm_rank failed");
+  }
+  if (world_rank == 0) {
+    count = std::get<1>(GetInput());
+  }
+
+  err_code = MPI_Bcast(&count, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Bcast failed");
+  }
+  temp_vec_.resize(count);
+
+  err_code =
+      MPI_Scatter(std::get<0>(GetInput()).data(), count, MPI_INT, temp_vec_.data(), count, MPI_INT, 0, MPI_COMM_WORLD);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Scatter failed");
+  }
+
+  err_code = MPI_Barrier(MPI_COMM_WORLD);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Barrier failed");
+  }
+  return true;
+}
+
+void ZagryadskovMAllreduceMPI::ApplyOp(void *recvbuf, const void *tempbuf, int count, MPI_Datatype type, MPI_Op op,
+                                       MPI_Comm comm) {
+  if (type == MPI_INT) {
+    ApplyOp<int>(recvbuf, tempbuf, count, op, comm);
+  } else if (type == MPI_DOUBLE) {
+    ApplyOp<double>(recvbuf, tempbuf, count, op, comm);
+  } else if (type == MPI_FLOAT) {
+    ApplyOp<float>(recvbuf, tempbuf, count, op, comm);
+  } else {
+    MPI_Abort(comm, 1);
+  }
+}
+
+int ZagryadskovMAllreduceMPI::MyAllreduce(const void *sendbuf, void *recvbuf, int count, MPI_Datatype datatype,
+                                          MPI_Op op, MPI_Comm comm) {
+  int rank = 0;
+  int size = 0;
+  MPI_Comm_rank(comm, &rank);
+  MPI_Comm_size(comm, &size);
+
+  int type_size = 0;
+  MPI_Type_size(datatype, &type_size);
+  std::vector<unsigned char> container_buf(static_cast<size_t>(count) * static_cast<size_t>(type_size));
+  void *tempbuf = reinterpret_cast<void *>(container_buf.data());
+
+  memcpy(recvbuf, sendbuf, static_cast<size_t>(count) * static_cast<size_t>(type_size));
+
+  int p2 = 1;
+  while (p2 << 1 <= size) {
+    p2 <<= 1;
+  }
+
+  if (rank >= p2) {
+    int partner = rank - p2;
+
+    MPI_Send(recvbuf, count, datatype, partner, 0, comm);
+    MPI_Recv(recvbuf, count, datatype, partner, 0, comm, MPI_STATUS_IGNORE);
+
+    return MPI_SUCCESS;
+  }
+
+  if (rank + p2 < size) {
+    int partner = rank + p2;
+    MPI_Recv(tempbuf, count, datatype, partner, 0, comm, MPI_STATUS_IGNORE);
+    ApplyOp(recvbuf, tempbuf, count, datatype, op, comm);
+  }
+
+  for (int step = 0; (1 << step) < p2; step++) {
+    int partner = rank ^ (1 << step);
+
+    MPI_Request request = MPI_REQUEST_NULL;
+    MPI_Isend(recvbuf, count, datatype, partner, 0, comm, &request);
+    MPI_Recv(tempbuf, count, datatype, partner, 0, comm, MPI_STATUS_IGNORE);
+    MPI_Wait(&request, MPI_STATUS_IGNORE);
+
+    ApplyOp(recvbuf, tempbuf, count, datatype, op, comm);
+  }
+
+  if (rank + p2 < size) {
+    int partner = rank + p2;
+    MPI_Send(recvbuf, count, datatype, partner, 0, comm);
+  }
+
+  return MPI_SUCCESS;
+}
+
+bool ZagryadskovMAllreduceMPI::RunImpl() {
+  int world_size = 0;
+  int world_rank = 0;
+  int err_code = 0;
+  int iop = 0;
+  err_code = MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Comm_size failed");
+  }
+  err_code = MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Comm_rank failed");
+  }
+  if (world_rank == 0) {
+    iop = std::get<2>(GetInput());
+  }
+  err_code = MPI_Bcast(&iop, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Bcast failed");
+  }
+
+  GetOutput().resize(temp_vec_.size());
+  MPI_Op op = ZagryadskovMAllreduceSEQ::GetOp(iop);
+  ZagryadskovMAllreduceMPI::MyAllreduce(temp_vec_.data(), GetOutput().data(), static_cast<int>(temp_vec_.size()),
+                                        MPI_INT, op, MPI_COMM_WORLD);
+
+  err_code = MPI_Barrier(MPI_COMM_WORLD);
+  if (err_code != MPI_SUCCESS) {
+    throw std::runtime_error("MPI_Barrier failed");
+  }
+  return true;
+}
+
+bool ZagryadskovMAllreduceMPI::PostProcessingImpl() {
+  bool result = false;
+  int world_rank = 0;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+  if (world_rank == 0) {
+    result = !GetOutput().empty();
+  } else {
+    result = true;
+  }
+  return result;
+}
+
+}  // namespace zagryadskov_m_allreduce
