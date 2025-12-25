@@ -104,14 +104,20 @@ void SendColumnRange(const SparseMatrixCCS &b, int dest, int dest_start, int des
 
 void DistributeColumnsBRoot(int size, const SparseMatrixCCS &b, SparseMatrixCCS &local_b, int local_start,
                             int local_end, int cols_per_proc) {
-  int start_idx = b.col_pointers[local_start];
-  int end_idx = b.col_pointers[local_end];
+  if (local_start < b.cols) {
+    int start_idx = b.col_pointers[local_start];
+    int end_idx = b.col_pointers[local_end];
 
-  local_b.values.assign(b.values.begin() + start_idx, b.values.begin() + end_idx);
-  local_b.row_indices.assign(b.row_indices.begin() + start_idx, b.row_indices.begin() + end_idx);
-  local_b.col_pointers.resize(local_b.cols + 1);
-  for (int i = 0; i <= local_b.cols; i++) {
-    local_b.col_pointers[i] = b.col_pointers[local_start + i] - start_idx;
+    local_b.values.assign(b.values.begin() + start_idx, b.values.begin() + end_idx);
+    local_b.row_indices.assign(b.row_indices.begin() + start_idx, b.row_indices.begin() + end_idx);
+    local_b.col_pointers.resize(local_b.cols + 1);
+    for (int i = 0; i <= local_b.cols; i++) {
+      local_b.col_pointers[i] = b.col_pointers[local_start + i] - start_idx;
+    }
+  } else {
+    local_b.values.clear();
+    local_b.row_indices.clear();
+    local_b.col_pointers.resize(1, 0);
   }
 
   for (int dest = 1; dest < size; dest++) {
@@ -141,13 +147,19 @@ void DistributeColumnsB(int rank, int size, const SparseMatrixCCS &b, int &local
                         SparseMatrixCCS &local_b) {
   int cols_per_proc = (b.cols + size - 1) / size;
   local_start = rank * cols_per_proc;
-  local_end = std::min(local_start + cols_per_proc, b.cols);
 
   if (local_start >= b.cols) {
     local_start = b.cols;
     local_end = b.cols;
+    local_b.rows = b.rows;
+    local_b.cols = 0;
+    local_b.values.clear();
+    local_b.row_indices.clear();
+    local_b.col_pointers.resize(1, 0);
+    return;
   }
 
+  local_end = std::min(local_start + cols_per_proc, b.cols);
   local_b.rows = b.rows;
   local_b.cols = local_end - local_start;
 
@@ -238,39 +250,40 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
   final_res.col_pointers.resize(res_cols + 1, 0);
 
   std::vector<SparseMatrixCCS> all_locals;
+  std::vector<int> process_offsets;
+
   all_locals.reserve(size);
+  process_offsets.reserve(size);
+
   all_locals.push_back(local_res);
-
-  std::vector<int> process_offsets(size);
-
-  if (!process_offsets.empty()) {
-    process_offsets[0] = local_start;
-  }
+  process_offsets.push_back(local_start);
 
   for (int src = 1; src < size; src++) {
     int src_local_start;
     MPI_Recv(&src_local_start, 1, MPI_INT, src, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    process_offsets[src] = src_local_start;
+    process_offsets.push_back(src_local_start);
 
     SparseMatrixCCS received;
     ReceiveProcessResult(src, received);
     all_locals.push_back(received);
   }
 
-  for (int proc = 0; proc < size; proc++) {
+  for (size_t proc = 0; proc < all_locals.size(); proc++) {
     int offset = process_offsets[proc];
     const auto &proc_res = all_locals[proc];
 
     for (int col = 0; col < proc_res.cols; col++) {
       int global_col = offset + col;
-      int start = proc_res.col_pointers[col];
-      int end = proc_res.col_pointers[col + 1];
+      if (global_col >= 0 && global_col < res_cols) {
+        int start = proc_res.col_pointers[col];
+        int end = proc_res.col_pointers[col + 1];
 
-      for (int idx = start; idx < end; idx++) {
-        final_res.values.push_back(proc_res.values[idx]);
-        final_res.row_indices.push_back(proc_res.row_indices[idx]);
+        for (int idx = start; idx < end; idx++) {
+          final_res.values.push_back(proc_res.values[idx]);
+          final_res.row_indices.push_back(proc_res.row_indices[idx]);
+        }
+        final_res.col_pointers[global_col + 1] = static_cast<int>(final_res.values.size());
       }
-      final_res.col_pointers[global_col + 1] = static_cast<int>(final_res.values.size());
     }
   }
 }
