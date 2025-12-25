@@ -77,7 +77,6 @@ void BroadcastMatrixA(int rank, SparseMatrixCCS &a) {
   }
 }
 
-// функция для отправки столбцов процессу
 void SendColumnRange(const SparseMatrixCCS &b, int dest, int dest_start, int dest_end) {
   if (dest_start >= b.cols) {
     dest_start = b.cols;
@@ -103,10 +102,8 @@ void SendColumnRange(const SparseMatrixCCS &b, int dest, int dest_start, int des
   MPI_Send(adj_col_ptrs.data(), col_ptr_size, MPI_INT, dest, 3, MPI_COMM_WORLD);
 }
 
-// функция для обработки корневого процесса
 void DistributeColumnsBRoot(int size, const SparseMatrixCCS &b, SparseMatrixCCS &local_b, int local_start,
                             int local_end, int cols_per_proc) {
-  // Обработать локальные данные для корня
   int start_idx = b.col_pointers[local_start];
   int end_idx = b.col_pointers[local_end];
 
@@ -117,7 +114,6 @@ void DistributeColumnsBRoot(int size, const SparseMatrixCCS &b, SparseMatrixCCS 
     local_b.col_pointers[i] = b.col_pointers[local_start + i] - start_idx;
   }
 
-  // Отправить данные остальным процессам
   for (int dest = 1; dest < size; dest++) {
     int dest_start = dest * cols_per_proc;
     int dest_end = std::min(dest_start + cols_per_proc, b.cols);
@@ -125,7 +121,6 @@ void DistributeColumnsBRoot(int size, const SparseMatrixCCS &b, SparseMatrixCCS 
   }
 }
 
-// функция для обработки некорневых процессов
 void DistributeColumnsBNonRoot(SparseMatrixCCS &local_b) {
   int local_size = 0;
   MPI_Recv(&local_size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -142,7 +137,6 @@ void DistributeColumnsBNonRoot(SparseMatrixCCS &local_b) {
   MPI_Recv(local_b.col_pointers.data(), col_ptr_size, MPI_INT, 0, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
-// функция распределения столбцов
 void DistributeColumnsB(int rank, int size, const SparseMatrixCCS &b, int &local_start, int &local_end,
                         SparseMatrixCCS &local_b) {
   int cols_per_proc = (b.cols + size - 1) / size;
@@ -206,7 +200,6 @@ void ComputeLocal(const SparseMatrixCCS &a, const SparseMatrixCCS &local_b, Spar
   }
 }
 
-// функция для приема результата от процесса
 void ReceiveProcessResult(int src, SparseMatrixCCS &received) {
   int recv_vals_size = 0;
   int recv_rows_size = 0;
@@ -238,9 +231,8 @@ void ReceiveProcessResult(int src, SparseMatrixCCS &received) {
   }
 }
 
-// функция для сбора результатов на корневом процессе
 void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
-                       int res_cols) {
+                       int res_cols, int local_start) {
   final_res.rows = res_rows;
   final_res.cols = res_cols;
   final_res.col_pointers.resize(res_cols + 1, 0);
@@ -249,15 +241,25 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
   all_locals.reserve(size);
   all_locals.push_back(local_res);
 
+  std::vector<int> process_offsets(size, 0);
+  process_offsets[0] = local_start;
+
   for (int src = 1; src < size; src++) {
+    int src_local_start;
+    MPI_Recv(&src_local_start, 1, MPI_INT, src, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    process_offsets[src] = src_local_start;
+
     SparseMatrixCCS received;
     ReceiveProcessResult(src, received);
     all_locals.push_back(received);
   }
 
-  int offset = 0;
-  for (const auto &proc_res : all_locals) {
+  for (int proc = 0; proc < size; proc++) {
+    int offset = process_offsets[proc];
+    const auto &proc_res = all_locals[proc];
+
     for (int col = 0; col < proc_res.cols; col++) {
+      int global_col = offset + col;
       int start = proc_res.col_pointers[col];
       int end = proc_res.col_pointers[col + 1];
 
@@ -265,14 +267,14 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
         final_res.values.push_back(proc_res.values[idx]);
         final_res.row_indices.push_back(proc_res.row_indices[idx]);
       }
-      final_res.col_pointers[offset + col + 1] = static_cast<int>(final_res.values.size());
+      final_res.col_pointers[global_col + 1] = static_cast<int>(final_res.values.size());
     }
-    offset += proc_res.cols;
   }
 }
 
-// функция для отправки результатов на корневой процесс
-void GatherResultsNonRoot(const SparseMatrixCCS &local_res) {
+void GatherResultsNonRoot(const SparseMatrixCCS &local_res, int local_start) {
+  MPI_Send(&local_start, 1, MPI_INT, 0, 10, MPI_COMM_WORLD);
+
   int send_vals_size = static_cast<int>(local_res.values.size());
   int send_rows_size = static_cast<int>(local_res.row_indices.size());
   int send_cols = local_res.cols;
@@ -288,13 +290,12 @@ void GatherResultsNonRoot(const SparseMatrixCCS &local_res) {
   MPI_Send(local_res.col_pointers.data(), send_cols + 1, MPI_INT, 0, 9, MPI_COMM_WORLD);
 }
 
-// функция сбора результатов
 void GatherResults(int rank, int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
-                   int res_cols) {
+                   int res_cols, int local_start) {
   if (rank == 0) {
-    GatherResultsRoot(size, local_res, final_res, res_rows, res_cols);
+    GatherResultsRoot(size, local_res, final_res, res_rows, res_cols, local_start);
   } else {
-    GatherResultsNonRoot(local_res);
+    GatherResultsNonRoot(local_res, local_start);
   }
 }
 
@@ -360,7 +361,7 @@ bool SparseMatmulCCSMPI::RunImpl() {
   ComputeLocal(a, local_b, local_res);
 
   SparseMatrixCCS final_res;
-  GatherResults(rank, size, local_res, final_res, res_rows, res_cols);
+  GatherResults(rank, size, local_res, final_res, res_rows, res_cols, local_start);
 
   BroadcastFinal(rank, final_res);
 
