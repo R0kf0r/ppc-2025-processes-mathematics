@@ -2,9 +2,9 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <map>
 #include <random>
-#include <string>
 #include <tuple>
 #include <vector>
 
@@ -55,8 +55,9 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
   static SparseMatrixCCS GenerateSparse(int rows, int cols, double density) {
     SparseMatrixCCS mat(rows, cols);
 
-    // Используем C++11 random вместо устаревшего rand()
-    static std::mt19937 generator(42);
+    // Используем std::random_device для получения случайного зерна
+    std::random_device rd;
+    std::mt19937 generator(rd());
     std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
     std::uniform_real_distribution<double> val_dist(0.0, 10.0);
 
@@ -104,6 +105,7 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
       }
     }
 
+    result.col_pointers[0] = 0;
     for (int col = 0; col < res_cols; col++) {
       for (const auto &item : temp_cols[col]) {
         if (std::abs(item.second) > 1e-10) {
@@ -134,19 +136,19 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
       return false;
     }
 
-    for (size_t i = 0; i < expected.values.size(); i++) {
+    for (std::size_t i = 0; i < expected.values.size(); i++) {
       if (std::abs(expected.values[i] - actual.values[i]) > 1e-6) {
         return false;
       }
     }
 
-    for (size_t i = 0; i < expected.row_indices.size(); i++) {
+    for (std::size_t i = 0; i < expected.row_indices.size(); i++) {
       if (expected.row_indices[i] != actual.row_indices[i]) {
         return false;
       }
     }
 
-    for (size_t i = 0; i < expected.col_pointers.size(); i++) {
+    for (std::size_t i = 0; i < expected.col_pointers.size(); i++) {
       if (expected.col_pointers[i] != actual.col_pointers[i]) {
         return false;
       }

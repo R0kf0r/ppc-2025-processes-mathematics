@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
-#include <string>
 #include <vector>
 
 #include "polukhin_v_sparse_matmul_ccs/common/include/common.hpp"
@@ -105,8 +104,8 @@ void SendColumnRange(const SparseMatrixCCS &b, int dest, int dest_start, int des
 }
 
 // функция для обработки корневого процесса
-void DistributeColumnsB_Root(int size, const SparseMatrixCCS &b, SparseMatrixCCS &local_b, int local_start,
-                             int local_end, int cols_per_proc) {
+void DistributeColumnsBRoot(int size, const SparseMatrixCCS &b, SparseMatrixCCS &local_b, int local_start,
+                            int local_end, int cols_per_proc) {
   // Обработать локальные данные для корня
   int start_idx = b.col_pointers[local_start];
   int end_idx = b.col_pointers[local_end];
@@ -127,7 +126,7 @@ void DistributeColumnsB_Root(int size, const SparseMatrixCCS &b, SparseMatrixCCS
 }
 
 // функция для обработки некорневых процессов
-void DistributeColumnsB_NonRoot(SparseMatrixCCS &local_b) {
+void DistributeColumnsBNonRoot(SparseMatrixCCS &local_b) {
   int local_size = 0;
   MPI_Recv(&local_size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
@@ -159,9 +158,9 @@ void DistributeColumnsB(int rank, int size, const SparseMatrixCCS &b, int &local
   local_b.cols = local_end - local_start;
 
   if (rank == 0) {
-    DistributeColumnsB_Root(size, b, local_b, local_start, local_end, cols_per_proc);
+    DistributeColumnsBRoot(size, b, local_b, local_start, local_end, cols_per_proc);
   } else {
-    DistributeColumnsB_NonRoot(local_b);
+    DistributeColumnsBNonRoot(local_b);
   }
 }
 
@@ -230,8 +229,8 @@ void ReceiveProcessResult(int src, SparseMatrixCCS &received) {
 }
 
 // функция для сбора результатов на корневом процессе
-void GatherResults_Root(int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
-                        int res_cols) {
+void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
+                       int res_cols) {
   final_res.rows = res_rows;
   final_res.cols = res_cols;
   final_res.col_pointers.resize(res_cols + 1, 0);
@@ -265,7 +264,7 @@ void GatherResults_Root(int size, const SparseMatrixCCS &local_res, SparseMatrix
 }
 
 // функция для отправки результатов на корневой процесс
-void GatherResults_NonRoot(const SparseMatrixCCS &local_res) {
+void GatherResultsNonRoot(const SparseMatrixCCS &local_res) {
   int send_vals_size = static_cast<int>(local_res.values.size());
   int send_rows_size = static_cast<int>(local_res.row_indices.size());
   int send_cols = local_res.cols;
@@ -285,9 +284,9 @@ void GatherResults_NonRoot(const SparseMatrixCCS &local_res) {
 void GatherResults(int rank, int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
                    int res_cols) {
   if (rank == 0) {
-    GatherResults_Root(size, local_res, final_res, res_rows, res_cols);
+    GatherResultsRoot(size, local_res, final_res, res_rows, res_cols);
   } else {
-    GatherResults_NonRoot(local_res);
+    GatherResultsNonRoot(local_res);
   }
 }
 
