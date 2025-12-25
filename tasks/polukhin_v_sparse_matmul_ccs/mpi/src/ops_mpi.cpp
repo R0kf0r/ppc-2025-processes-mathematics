@@ -241,8 +241,11 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
   all_locals.reserve(size);
   all_locals.push_back(local_res);
 
-  std::vector<int> process_offsets(size, 0);
-  process_offsets[0] = local_start;
+  std::vector<int> process_offsets(size);
+
+  if (!process_offsets.empty()) {
+    process_offsets[0] = local_start;
+  }
 
   for (int src = 1; src < size; src++) {
     int src_local_start;
