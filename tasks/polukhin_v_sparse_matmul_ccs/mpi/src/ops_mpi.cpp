@@ -213,37 +213,6 @@ void ComputeLocal(const SparseMatrixCCS &a, const SparseMatrixCCS &local_b, Spar
   }
 }
 
-void ReceiveProcessResult(int src, SparseMatrixCCS &received) {
-  int recv_vals_size = 0;
-  int recv_rows_size = 0;
-  int recv_cols = 0;
-
-  MPI_Recv(&recv_vals_size, 1, MPI_INT, src, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Recv(&recv_rows_size, 1, MPI_INT, src, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Recv(&recv_cols, 1, MPI_INT, src, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-  received.cols = recv_cols;
-
-  if (recv_cols >= 0) {
-    received.col_pointers.resize(recv_cols + 1, 0);
-  } else {
-    received.col_pointers.resize(0);
-    return;
-  }
-
-  if (recv_vals_size > 0) {
-    received.values.resize(recv_vals_size);
-    received.row_indices.resize(recv_rows_size);
-    MPI_Recv(received.values.data(), recv_vals_size, MPI_DOUBLE, src, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    MPI_Recv(received.row_indices.data(), recv_rows_size, MPI_INT, src, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  }
-
-  if (!received.col_pointers.empty()) {
-    MPI_Recv(received.col_pointers.data(), received.col_pointers.size(), MPI_INT, src, 9, MPI_COMM_WORLD,
-             MPI_STATUS_IGNORE);
-  }
-}
-
 void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
                        int res_cols, int local_start) {
   final_res.rows = res_rows;
@@ -265,10 +234,9 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
     process_starts.push_back(src_local_start);
 
     SparseMatrixCCS received;
-    MPI_Status status;
 
     int recv_vals_size, recv_rows_size, recv_cols;
-    MPI_Recv(&recv_vals_size, 1, MPI_INT, src, 4, MPI_COMM_WORLD, &status);
+    MPI_Recv(&recv_vals_size, 1, MPI_INT, src, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     MPI_Recv(&recv_rows_size, 1, MPI_INT, src, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     MPI_Recv(&recv_cols, 1, MPI_INT, src, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
