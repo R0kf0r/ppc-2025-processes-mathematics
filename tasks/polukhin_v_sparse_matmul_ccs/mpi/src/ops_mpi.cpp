@@ -217,8 +217,13 @@ void ReceiveProcessResult(int src, SparseMatrixCCS &received) {
   MPI_Recv(&recv_cols, 1, MPI_INT, src, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
   received.cols = recv_cols;
-  received.col_pointers.resize(recv_cols + 1);
-  received.col_pointers[0] = 0;
+
+  if (recv_cols >= 0) {
+    received.col_pointers.resize(recv_cols + 1, 0);
+  } else {
+    received.col_pointers.resize(0);
+    return;
+  }
 
   if (recv_vals_size > 0) {
     received.values.resize(recv_vals_size);
@@ -226,7 +231,11 @@ void ReceiveProcessResult(int src, SparseMatrixCCS &received) {
     MPI_Recv(received.values.data(), recv_vals_size, MPI_DOUBLE, src, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     MPI_Recv(received.row_indices.data(), recv_rows_size, MPI_INT, src, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   }
-  MPI_Recv(received.col_pointers.data(), recv_cols + 1, MPI_INT, src, 9, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+  if (!received.col_pointers.empty()) {
+    MPI_Recv(received.col_pointers.data(), received.col_pointers.size(), MPI_INT, src, 9, MPI_COMM_WORLD,
+             MPI_STATUS_IGNORE);
+  }
 }
 
 // функция для сбора результатов на корневом процессе
@@ -235,7 +244,6 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
   final_res.rows = res_rows;
   final_res.cols = res_cols;
   final_res.col_pointers.resize(res_cols + 1, 0);
-  final_res.col_pointers[0] = 0;
 
   std::vector<SparseMatrixCCS> all_locals;
   all_locals.reserve(size);
