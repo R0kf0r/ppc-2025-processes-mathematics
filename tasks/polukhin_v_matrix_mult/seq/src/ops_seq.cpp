@@ -16,11 +16,11 @@ MatrixMultTaskSEQ::MatrixMultTaskSEQ(const InType &in) {
 bool MatrixMultTaskSEQ::ValidationImpl() {
   const auto &input = GetInput();
   const auto &dims = input.dims;
-  // проверяем что размеры не нулевые
+
   if (dims.rows_a == 0 || dims.cols_a == 0 || dims.cols_b == 0) {
     return false;
   }
-  // проверяем соответствие размеров массивов
+
   const std::size_t expected_size_a = static_cast<std::size_t>(dims.rows_a) * static_cast<std::size_t>(dims.cols_a);
   const std::size_t expected_size_b = static_cast<std::size_t>(dims.cols_a) * static_cast<std::size_t>(dims.cols_b);
   if (input.matrix_a.size() != expected_size_a) {
@@ -35,8 +35,7 @@ bool MatrixMultTaskSEQ::PreProcessingImpl() {
   const auto &dims = GetInput().dims;
   const std::size_t result_size = static_cast<std::size_t>(dims.rows_a) * static_cast<std::size_t>(dims.cols_b);
   GetOutput().resize(result_size);
-  // ИСПРАВЛЕНИЕ: убрана инициализация нулями
-  // Каждый элемент будет перезаписан в RunImpl, поэтому инициализация не нужна
+
   return true;
 }
 bool MatrixMultTaskSEQ::RunImpl() {
@@ -49,12 +48,11 @@ bool MatrixMultTaskSEQ::RunImpl() {
   const std::size_t k = dims.cols_a;
   const std::size_t n = dims.cols_b;
 
-  // стандартный алгоритм умножения матриц
+  // алгоритм умножения матриц
   for (std::size_t i = 0; i < m; ++i) {
     for (std::size_t j = 0; j < n; ++j) {
       double sum = 0.0;
       for (std::size_t pk = 0; pk < k; ++pk) {
-        // элемент из i-й строки A и pk-го столбца B
         const double a_elem = a[(i * k) + pk];
         const double b_elem = b[(pk * n) + j];
         sum += a_elem * b_elem;

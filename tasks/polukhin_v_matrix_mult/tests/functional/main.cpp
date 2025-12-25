@@ -12,6 +12,7 @@
 #include "polukhin_v_matrix_mult/seq/include/ops_seq.hpp"
 #include "util/include/func_test_util.hpp"
 #include "util/include/util.hpp"
+
 namespace polukhin_v_matrix_mult {
 class PolukhinVRunFuncTestsMatrixMult : public ppc::util::BaseRunFuncTests<InType, OutType, TestType> {
  public:
