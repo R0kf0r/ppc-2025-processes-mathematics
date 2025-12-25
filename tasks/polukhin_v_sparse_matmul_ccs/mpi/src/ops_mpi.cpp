@@ -168,6 +168,7 @@ void ComputeLocal(const SparseMatrixCCS &a, const SparseMatrixCCS &local_b, Spar
   local_res.rows = a.rows;
   local_res.cols = local_b.cols;
   local_res.col_pointers.resize(local_res.cols + 1, 0);
+  local_res.col_pointers[0] = 0;
 
   std::vector<std::map<int, double>> temp_cols(local_res.cols);
 
@@ -350,6 +351,10 @@ bool SparseMatmulCCSMPI::RunImpl() {
 
   SparseMatrixCCS local_res;
   ComputeLocal(a, local_b, local_res);
+
+  if (!local_res.col_pointers.empty()) {
+    local_res.col_pointers[0] = 0;
+  }
 
   SparseMatrixCCS final_res;
   GatherResults(rank, size, local_res, final_res, res_rows, res_cols);
