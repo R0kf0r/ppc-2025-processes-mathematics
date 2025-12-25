@@ -152,11 +152,11 @@ bool MatrixMultTaskMPI::RunImpl() {
 
   BroadcastMatrixDimensions(rank, m, k, n);
 
+  const int b_size = k * n;
   if (rank != 0) {
-    b_matrix.resize(static_cast<std::size_t>(k) * static_cast<std::size_t>(n));
+    b_matrix.resize(static_cast<std::size_t>(b_size));
   }
-
-  MPI_Bcast(b_matrix.data(), static_cast<int>(b_matrix.size()), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Bcast(b_matrix.data(), b_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   const int base_rows = (size == 0) ? 0 : (m / size);
   const int extra_rows = (size == 0) ? 0 : (m % size);
@@ -187,6 +187,14 @@ bool MatrixMultTaskMPI::RunImpl() {
   const int my_result_count = my_rows * n;
   MPI_Gatherv(local_result.data(), my_result_count, MPI_DOUBLE, rank == 0 ? GetOutput().data() : nullptr,
               recvcounts.data(), rdispls.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  if (size > 1) {
+    const int total_result_size = m * n;
+    if (rank != 0) {
+      GetOutput().resize(static_cast<std::size_t>(total_result_size));
+    }
+    MPI_Bcast(GetOutput().data(), total_result_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  }
 
   return true;
 }
