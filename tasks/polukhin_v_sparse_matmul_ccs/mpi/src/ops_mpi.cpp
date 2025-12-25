@@ -219,6 +219,7 @@ void ReceiveProcessResult(int src, SparseMatrixCCS &received) {
 
   received.cols = recv_cols;
   received.col_pointers.resize(recv_cols + 1);
+  received.col_pointers[0] = 0;
 
   if (recv_vals_size > 0) {
     received.values.resize(recv_vals_size);
@@ -235,19 +236,18 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
   final_res.rows = res_rows;
   final_res.cols = res_cols;
   final_res.col_pointers.resize(res_cols + 1, 0);
+  final_res.col_pointers[0] = 0;
 
   std::vector<SparseMatrixCCS> all_locals;
   all_locals.reserve(size);
   all_locals.push_back(local_res);
 
-  // Принять результаты от других процессов
   for (int src = 1; src < size; src++) {
     SparseMatrixCCS received;
     ReceiveProcessResult(src, received);
     all_locals.push_back(received);
   }
 
-  // Объединить все результаты
   int offset = 0;
   for (const auto &proc_res : all_locals) {
     for (int col = 0; col < proc_res.cols; col++) {
