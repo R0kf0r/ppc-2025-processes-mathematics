@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
 
-#include <cstdlib>
 #include <map>
+#include <random>
+#include <string>
 #include <vector>
 
 #include "polukhin_v_sparse_matmul_ccs/common/include/common.hpp"
@@ -14,8 +15,6 @@ namespace polukhin_v_sparse_matmul_ccs {
 class PolukhinVRunPerfTestsSparseMatmulCCS : public ppc::util::BaseRunPerfTests<InType, OutType> {
  protected:
   void SetUp() override {
-    srand(42);
-
     const int size = 1000;
     const double density = 0.1;
 
@@ -43,11 +42,15 @@ class PolukhinVRunPerfTestsSparseMatmulCCS : public ppc::util::BaseRunPerfTests<
   static SparseMatrixCCS GenerateSparse(int rows, int cols, double density) {
     SparseMatrixCCS mat(rows, cols);
 
+    static std::mt19937 generator(42);
+    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> val_dist(0.0, 10.0);
+
     for (int col = 0; col < cols; col++) {
       for (int row = 0; row < rows; row++) {
-        double r = static_cast<double>(rand()) / RAND_MAX;
+        double r = prob_dist(generator);
         if (r < density) {
-          double val = static_cast<double>(rand() % 100) / 10.0;
+          double val = val_dist(generator);
           mat.values.push_back(val);
           mat.row_indices.push_back(row);
         }
@@ -87,7 +90,6 @@ class PolukhinVRunPerfTestsSparseMatmulCCS : public ppc::util::BaseRunPerfTests<
       }
     }
 
-    result.col_pointers[0] = 0;
     for (int col = 0; col < res_cols; col++) {
       for (const auto &item : temp_cols[col]) {
         if (std::abs(item.second) > 1e-10) {

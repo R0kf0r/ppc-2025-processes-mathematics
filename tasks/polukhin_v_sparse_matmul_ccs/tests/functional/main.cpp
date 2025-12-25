@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstddef>
+#include <map>
+#include <random>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -24,8 +25,6 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
 
  protected:
   void SetUp() override {
-    srand(42);
-
     auto params = std::get<static_cast<std::size_t>(ppc::util::GTestParamIndex::kTestParams)>(GetParam());
 
     int rows_a = std::get<0>(params);
@@ -56,11 +55,16 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
   static SparseMatrixCCS GenerateSparse(int rows, int cols, double density) {
     SparseMatrixCCS mat(rows, cols);
 
+    // Используем C++11 random вместо устаревшего rand()
+    static std::mt19937 generator(42);
+    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> val_dist(0.0, 10.0);
+
     for (int col = 0; col < cols; col++) {
       for (int row = 0; row < rows; row++) {
-        double r = static_cast<double>(rand()) / RAND_MAX;
+        double r = prob_dist(generator);
         if (r < density) {
-          double val = static_cast<double>(rand() % 100) / 10.0;
+          double val = val_dist(generator);
           mat.values.push_back(val);
           mat.row_indices.push_back(row);
         }
@@ -100,7 +104,6 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
       }
     }
 
-    result.col_pointers[0] = 0;
     for (int col = 0; col < res_cols; col++) {
       for (const auto &item : temp_cols[col]) {
         if (std::abs(item.second) > 1e-10) {

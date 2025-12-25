@@ -1,9 +1,10 @@
 #include "polukhin_v_sparse_matmul_ccs/seq/include/ops_seq.hpp"
 
-#include <algorithm>
 #include <cmath>
 #include <map>
 #include <vector>
+
+#include "polukhin_v_sparse_matmul_ccs/common/include/common.hpp"
 
 namespace polukhin_v_sparse_matmul_ccs {
 
@@ -59,7 +60,6 @@ bool SparseMatmulCCSSEQ::RunImpl() {
     }
   }
 
-  result.col_pointers[0] = 0;
   for (int col = 0; col < res_cols; col++) {
     for (const auto &item : temp_cols[col]) {
       if (std::abs(item.second) > 1e-10) {
