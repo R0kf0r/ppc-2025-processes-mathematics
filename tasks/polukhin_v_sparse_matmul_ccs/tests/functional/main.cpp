@@ -1,10 +1,11 @@
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <map>
 #include <random>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -34,8 +35,8 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
     int cols_a = std::get<1>(params);
     int cols_b = std::get<2>(params);
 
-    SparseMatrixCCS a = GenerateSparse(rows_a, cols_a, 0.3);
-    SparseMatrixCCS b = GenerateSparse(cols_a, cols_b, 0.3);
+    SparseMatrixCCS a = GenerateSparse(rows_a, cols_a, 0.3, generator);
+    SparseMatrixCCS b = GenerateSparse(cols_a, cols_b, 0.3, generator);
 
     input_data_.matrix_a = a;
     input_data_.matrix_b = b;
@@ -55,14 +56,17 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
   InType input_data_;
   OutType expected_output_;
 
-  static SparseMatrixCCS GenerateSparse(int rows, int cols, double density) {
+  static SparseMatrixCCS GenerateSparse(int rows, int cols, double density, std::mt19937 &generator) {
     SparseMatrixCCS mat(rows, cols);
+
+    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
+    std::uniform_real_distribution<double> val_dist(0.0, 10.0);
 
     for (int col = 0; col < cols; col++) {
       for (int row = 0; row < rows; row++) {
-        double r = static_cast<double>(rand()) / RAND_MAX;
+        double r = prob_dist(generator);
         if (r < density) {
-          double val = static_cast<double>(rand() % 100) / 10.0;
+          double val = val_dist(generator);
           mat.values.push_back(val);
           mat.row_indices.push_back(row);
         }
@@ -132,19 +136,19 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
       return false;
     }
 
-    for (size_t i = 0; i < expected.values.size(); i++) {
+    for (std::size_t i = 0; i < expected.values.size(); i++) {
       if (std::abs(expected.values[i] - actual.values[i]) > 1e-6) {
         return false;
       }
     }
 
-    for (size_t i = 0; i < expected.row_indices.size(); i++) {
+    for (std::size_t i = 0; i < expected.row_indices.size(); i++) {
       if (expected.row_indices[i] != actual.row_indices[i]) {
         return false;
       }
     }
 
-    for (size_t i = 0; i < expected.col_pointers.size(); i++) {
+    for (std::size_t i = 0; i < expected.col_pointers.size(); i++) {
       if (expected.col_pointers[i] != actual.col_pointers[i]) {
         return false;
       }

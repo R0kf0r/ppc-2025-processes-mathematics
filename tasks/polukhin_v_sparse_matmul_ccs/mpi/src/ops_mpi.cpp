@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <map>
 #include <vector>
 
@@ -213,52 +214,37 @@ void ComputeLocal(const SparseMatrixCCS &a, const SparseMatrixCCS &local_b, Spar
   }
 }
 
-void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
-                       int res_cols, int local_start) {
-  final_res.rows = res_rows;
-  final_res.cols = res_cols;
-  final_res.col_pointers.resize(res_cols + 1, 0);
+void ReceiveProcessData(int src, int &src_local_start, SparseMatrixCCS &received) {
+  src_local_start = 0;
+  MPI_Recv(&src_local_start, 1, MPI_INT, src, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-  std::vector<SparseMatrixCCS> all_locals;
-  std::vector<int> process_starts;
+  int recv_vals_size = 0;
+  int recv_rows_size = 0;
+  int recv_cols = 0;
 
-  all_locals.reserve(size);
-  process_starts.reserve(size);
+  MPI_Recv(&recv_vals_size, 1, MPI_INT, src, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Recv(&recv_rows_size, 1, MPI_INT, src, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Recv(&recv_cols, 1, MPI_INT, src, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-  all_locals.push_back(local_res);
-  process_starts.push_back(local_start);
+  received.cols = recv_cols;
+  received.col_pointers.resize(recv_cols + 1, 0);
 
-  for (int src = 1; src < size; src++) {
-    int src_local_start;
-    MPI_Recv(&src_local_start, 1, MPI_INT, src, 10, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    process_starts.push_back(src_local_start);
-
-    SparseMatrixCCS received;
-
-    int recv_vals_size, recv_rows_size, recv_cols;
-    MPI_Recv(&recv_vals_size, 1, MPI_INT, src, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    MPI_Recv(&recv_rows_size, 1, MPI_INT, src, 5, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    MPI_Recv(&recv_cols, 1, MPI_INT, src, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-    received.cols = recv_cols;
-    received.col_pointers.resize(recv_cols + 1, 0);
-
-    if (recv_vals_size > 0) {
-      received.values.resize(recv_vals_size);
-      received.row_indices.resize(recv_rows_size);
-      MPI_Recv(received.values.data(), recv_vals_size, MPI_DOUBLE, src, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-      MPI_Recv(received.row_indices.data(), recv_rows_size, MPI_INT, src, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    }
-
-    if (!received.col_pointers.empty()) {
-      MPI_Recv(received.col_pointers.data(), received.col_pointers.size(), MPI_INT, src, 9, MPI_COMM_WORLD,
-               MPI_STATUS_IGNORE);
-    }
-
-    all_locals.push_back(received);
+  if (recv_vals_size > 0) {
+    received.values.resize(recv_vals_size);
+    received.row_indices.resize(recv_rows_size);
+    MPI_Recv(received.values.data(), recv_vals_size, MPI_DOUBLE, src, 7, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv(received.row_indices.data(), recv_rows_size, MPI_INT, src, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   }
 
-  for (size_t proc = 0; proc < all_locals.size(); proc++) {
+  if (!received.col_pointers.empty()) {
+    int col_ptr_size = static_cast<int>(received.col_pointers.size());
+    MPI_Recv(received.col_pointers.data(), col_ptr_size, MPI_INT, src, 9, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  }
+}
+
+void AssembleResult(const std::vector<SparseMatrixCCS> &all_locals, const std::vector<int> &process_starts,
+                    SparseMatrixCCS &final_res, int res_cols) {
+  for (std::size_t proc = 0; proc < all_locals.size(); proc++) {
     int offset = process_starts[proc];
     const auto &proc_res = all_locals[proc];
 
@@ -283,6 +269,32 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
       final_res.col_pointers[global_col + 1] = static_cast<int>(final_res.values.size());
     }
   }
+}
+
+void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixCCS &final_res, int res_rows,
+                       int res_cols, int local_start) {
+  final_res.rows = res_rows;
+  final_res.cols = res_cols;
+  final_res.col_pointers.resize(res_cols + 1, 0);
+
+  std::vector<SparseMatrixCCS> all_locals;
+  std::vector<int> process_starts;
+
+  all_locals.reserve(size);
+  process_starts.reserve(size);
+
+  all_locals.push_back(local_res);
+  process_starts.push_back(local_start);
+
+  for (int src = 1; src < size; src++) {
+    int src_local_start = 0;
+    SparseMatrixCCS received;
+    ReceiveProcessData(src, src_local_start, received);
+    process_starts.push_back(src_local_start);
+    all_locals.push_back(received);
+  }
+
+  AssembleResult(all_locals, process_starts, final_res, res_cols);
 }
 
 void GatherResultsNonRoot(const SparseMatrixCCS &local_res, int local_start) {
