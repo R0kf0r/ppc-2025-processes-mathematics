@@ -241,7 +241,12 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
     MPI_Recv(&recv_cols, 1, MPI_INT, src, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
     received.cols = recv_cols;
-    received.col_pointers.resize(recv_cols + 1, 0);
+
+    if (recv_cols >= 0) {
+      received.col_pointers.resize(recv_cols + 1, 0);
+    } else {
+      received.col_pointers.resize(0);
+    }
 
     if (recv_vals_size > 0) {
       received.values.resize(recv_vals_size);
@@ -250,7 +255,7 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
       MPI_Recv(received.row_indices.data(), recv_rows_size, MPI_INT, src, 8, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
 
-    if (!received.col_pointers.empty()) {
+    if (!received.col_pointers.empty() && recv_cols >= 0) {
       MPI_Recv(received.col_pointers.data(), received.col_pointers.size(), MPI_INT, src, 9, MPI_COMM_WORLD,
                MPI_STATUS_IGNORE);
     }
@@ -258,7 +263,7 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
     all_locals.push_back(received);
   }
 
-  for (size_t proc = 0; proc < all_locals.size(); proc++) {
+  for (size_t proc = 0; proc < all_locals.size() && proc < static_cast<size_t>(size); proc++) {
     int offset = process_starts[proc];
     const auto &proc_res = all_locals[proc];
 
@@ -269,18 +274,23 @@ void GatherResultsRoot(int size, const SparseMatrixCCS &local_res, SparseMatrixC
     for (int col = 0; col < proc_res.cols; col++) {
       int global_col = offset + col;
 
-      if (global_col < 0 || global_col >= res_cols) {
-        continue;
-      }
+      if (global_col >= 0 && global_col < res_cols) {
+        if (col >= 0 && col + 1 < static_cast<int>(proc_res.col_pointers.size())) {
+          int start = proc_res.col_pointers[col];
+          int end = proc_res.col_pointers[col + 1];
 
-      int start = proc_res.col_pointers[col];
-      int end = proc_res.col_pointers[col + 1];
-
-      for (int idx = start; idx < end; idx++) {
-        final_res.values.push_back(proc_res.values[idx]);
-        final_res.row_indices.push_back(proc_res.row_indices[idx]);
+          if (start >= 0 && end >= start && start < static_cast<int>(proc_res.values.size()) &&
+              end <= static_cast<int>(proc_res.values.size())) {
+            for (int idx = start; idx < end; idx++) {
+              final_res.values.push_back(proc_res.values[idx]);
+              final_res.row_indices.push_back(proc_res.row_indices[idx]);
+            }
+          }
+        }
+        if (global_col + 1 < static_cast<int>(final_res.col_pointers.size())) {
+          final_res.col_pointers[global_col + 1] = static_cast<int>(final_res.values.size());
+        }
       }
-      final_res.col_pointers[global_col + 1] = static_cast<int>(final_res.values.size());
     }
   }
 }
@@ -365,19 +375,29 @@ bool SparseMatmulCCSMPI::RunImpl() {
   BroadcastDimensions(rank, a, b, res_rows, res_cols);
   BroadcastMatrixA(rank, a);
 
+  MPI_Barrier(MPI_COMM_WORLD);
+
   int local_start = 0;
   int local_end = 0;
   SparseMatrixCCS local_b;
 
   DistributeColumnsB(rank, size, b, local_start, local_end, local_b);
 
+  MPI_Barrier(MPI_COMM_WORLD);
+
   SparseMatrixCCS local_res;
   ComputeLocal(a, local_b, local_res);
+
+  MPI_Barrier(MPI_COMM_WORLD);
 
   SparseMatrixCCS final_res;
   GatherResults(rank, size, local_res, final_res, res_rows, res_cols, local_start);
 
+  MPI_Barrier(MPI_COMM_WORLD);
+
   BroadcastFinal(rank, final_res);
+
+  MPI_Barrier(MPI_COMM_WORLD);
 
   GetOutput() = final_res;
 
