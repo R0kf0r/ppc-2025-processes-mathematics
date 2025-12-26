@@ -1,11 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <map>
-#include <random>
-#include <string>
 #include <tuple>
 #include <vector>
 
@@ -26,6 +24,9 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
 
  protected:
   void SetUp() override {
+    std::seed_seq seed{42};
+    std::mt19937 generator(seed);
+
     auto params = std::get<static_cast<std::size_t>(ppc::util::GTestParamIndex::kTestParams)>(GetParam());
 
     int rows_a = std::get<0>(params);
@@ -56,17 +57,11 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
   static SparseMatrixCCS GenerateSparse(int rows, int cols, double density) {
     SparseMatrixCCS mat(rows, cols);
 
-    // Используем std::random_device для получения случайного зерна
-    std::random_device rd;
-    std::mt19937 generator(rd());
-    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
-    std::uniform_real_distribution<double> val_dist(0.0, 10.0);
-
     for (int col = 0; col < cols; col++) {
       for (int row = 0; row < rows; row++) {
-        double r = prob_dist(generator);
+        double r = static_cast<double>(rand()) / RAND_MAX;
         if (r < density) {
-          double val = val_dist(generator);
+          double val = static_cast<double>(rand() % 100) / 10.0;
           mat.values.push_back(val);
           mat.row_indices.push_back(row);
         }
@@ -106,7 +101,6 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
       }
     }
 
-    result.col_pointers[0] = 0;
     for (int col = 0; col < res_cols; col++) {
       for (const auto &item : temp_cols[col]) {
         if (std::abs(item.second) > 1e-10) {
@@ -137,19 +131,19 @@ class PolukhinVRunFuncTestsSparseMatmulCCS : public ppc::util::BaseRunFuncTests<
       return false;
     }
 
-    for (std::size_t i = 0; i < expected.values.size(); i++) {
+    for (size_t i = 0; i < expected.values.size(); i++) {
       if (std::abs(expected.values[i] - actual.values[i]) > 1e-6) {
         return false;
       }
     }
 
-    for (std::size_t i = 0; i < expected.row_indices.size(); i++) {
+    for (size_t i = 0; i < expected.row_indices.size(); i++) {
       if (expected.row_indices[i] != actual.row_indices[i]) {
         return false;
       }
     }
 
-    for (std::size_t i = 0; i < expected.col_pointers.size(); i++) {
+    for (size_t i = 0; i < expected.col_pointers.size(); i++) {
       if (expected.col_pointers[i] != actual.col_pointers[i]) {
         return false;
       }
