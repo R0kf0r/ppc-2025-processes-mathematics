@@ -79,13 +79,11 @@ void BroadcastMatrixA(int rank, SparseMatrixCCS &a) {
 }
 
 void SendColumnRange(const SparseMatrixCCS &b, int dest, int dest_start, int dest_end) {
-  if (dest_start >= b.cols) {
-    dest_start = b.cols;
-    dest_end = b.cols;
-  }
+  int actual_start = std::min(dest_start, b.cols);
+  int actual_end = std::min(dest_end, b.cols);
 
-  int start_idx = b.col_pointers[dest_start];
-  int end_idx = b.col_pointers[dest_end];
+  int start_idx = b.col_pointers[actual_start];
+  int end_idx = b.col_pointers[actual_end];
   int local_size = end_idx - start_idx;
 
   MPI_Send(&local_size, 1, MPI_INT, dest, 0, MPI_COMM_WORLD);
@@ -95,10 +93,10 @@ void SendColumnRange(const SparseMatrixCCS &b, int dest, int dest_start, int des
     MPI_Send(b.row_indices.data() + start_idx, local_size, MPI_INT, dest, 2, MPI_COMM_WORLD);
   }
 
-  int col_ptr_size = dest_end - dest_start + 1;
+  int col_ptr_size = actual_end - actual_start + 1;
   std::vector<int> adj_col_ptrs(col_ptr_size);
   for (int i = 0; i < col_ptr_size; i++) {
-    adj_col_ptrs[i] = b.col_pointers[dest_start + i] - start_idx;
+    adj_col_ptrs[i] = b.col_pointers[actual_start + i] - start_idx;
   }
   MPI_Send(adj_col_ptrs.data(), col_ptr_size, MPI_INT, dest, 3, MPI_COMM_WORLD);
 }
@@ -137,6 +135,9 @@ void DistributeColumnsBNonRoot(SparseMatrixCCS &local_b) {
     local_b.row_indices.resize(local_size);
     MPI_Recv(local_b.values.data(), local_size, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     MPI_Recv(local_b.row_indices.data(), local_size, MPI_INT, 0, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  } else {
+    local_b.values.clear();
+    local_b.row_indices.clear();
   }
 
   int col_ptr_size = local_b.cols + 1;
@@ -148,22 +149,10 @@ void DistributeColumnsB(int rank, int size, const SparseMatrixCCS &b, int &local
                         SparseMatrixCCS &local_b) {
   int cols_per_proc = (b.cols + size - 1) / size;
   local_start = rank * cols_per_proc;
-
-  if (local_start >= b.cols) {
-    local_start = b.cols;
-    local_end = b.cols;
-    local_b.rows = b.rows;
-    local_b.cols = 0;
-    local_b.values.clear();
-    local_b.row_indices.clear();
-    local_b.col_pointers.clear();
-    local_b.col_pointers.push_back(0);
-    return;
-  }
-
   local_end = std::min(local_start + cols_per_proc, b.cols);
+
   local_b.rows = b.rows;
-  local_b.cols = local_end - local_start;
+  local_b.cols = (local_start < b.cols) ? (local_end - local_start) : 0;
 
   if (rank == 0) {
     DistributeColumnsBRoot(size, b, local_b, local_start, local_end, cols_per_proc);
